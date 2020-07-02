@@ -1,0 +1,153 @@
+#PACKAGES
+library(forcats)
+library(gmodels)
+library(dplyr)
+library(rpart)
+library(dplyr)
+library(randomForest)
+library(FNN)
+
+#READ IN DATA
+#hw_train = read.csv("~/Desktop/SFU classes/Stat 310/HW3/train_listings.csv")
+#hw_test = read.csv("~/Desktop/SFU classes/Stat 310/HW3/test_listings_hw.csv")
+
+#VIEW DATA
+#View(hw_train)
+#View(hw_test)
+
+#EXPLORATORY ANALYSIS
+
+print(unique(hw_train$neighbourhood_group))
+r = nrow(hw_train)
+r
+t = nrow(hw_test)
+t
+
+#Correlation Matrix 
+cor(select(hw_train, c("latitude", "longitude", "minimum_nights", "number_of_reviews", "reviews_per_month" 
+                       , "calculated_host_listings_count" , "availability_365")))
+### Reviews per month and number of reviews have a decently high correlation at 0.62
+
+#RECODING VARIABLES
+#Create dummy variables for different neighbourhood groups - leave one out 
+hw_train$NorthRegion = ifelse( hw_train$neighbourhood_group == "North Region", 1, 0)
+hw_train$CentralRegion = ifelse( hw_train$neighbourhood_group == "Central Region", 1, 0)
+hw_train$EastRegion = ifelse( hw_train$neighbourhood_group == "East Region", 1, 0)
+hw_train$WestRegion = ifelse( hw_train$neighbourhood_group == "West Region", 1, 0)
+
+
+#Create dummy variables for different room types - leave one out 
+print(unique(hw_train$room_type))
+hw_train$PrivateRoom =  ifelse( hw_train$room_type == "Private room", 1, 0)
+hw_train$SharedRoom =  ifelse( hw_train$room_type == "Shared room", 1, 0)
+
+#MODELS
+
+#Linear Model 
+houseprice_lm = lm(price ~ latitude + longitude + minimum_nights + number_of_reviews + reviews_per_month 
+                   + calculated_host_listings_count + availability_365 + NorthRegion + CentralRegion + EastRegion + WestRegion 
+                   + PrivateRoom + SharedRoom, data = hw_train)
+summary(houseprice_lm)
+## terrible (but expected) model - Rsquared is 0.06
+
+#Tree Model
+#going to train and test our model within the original train data
+set.seed(310)
+trinds <- sample(c(1:r),3000,replace=F) #randomly take 3000 rows without replacement from the hw_train data
+data_train <- as.data.frame(hw_train[trinds,])
+data_test <- as.data.frame(hw_train[-trinds,])
+print(nrow(data_train))
+print(nrow(data_test))
+
+#with both number of reviews and reviews per month 
+houseprice_tree = rpart(price ~ latitude + longitude + minimum_nights + number_of_reviews + reviews_per_month 
+                       + calculated_host_listings_count + availability_365  + neighbourhood_group 
+                        + room_type, method = "anova", data = data_train)
+
+mypreds_tree <- predict(houseprice_tree,newdata = data_test, type = "vector", interval = "prediction")
+mse_tree = sum((mypreds_tree - data_test[,"price"])^2)/sum((data_test[,"price"] -mean(data_test[,"price"]))^2)
+mse_tree
+#error is 1.139
+
+
+# with only number of reviews
+houseprice_tree = rpart(price ~ latitude + longitude + minimum_nights + number_of_reviews
+                        + calculated_host_listings_count + availability_365  + neighbourhood_group 
+                        + room_type, method = "anova", data = data_train)
+
+mypreds_tree <- predict(houseprice_tree,newdata = data_test, type = "vector", interval = "prediction")
+mse_tree = sum((mypreds_tree - data_test[,"price"])^2)/sum((data_test[,"price"] -mean(data_test[,"price"]))^2)
+mse_tree
+#error is now 1.149
+
+# with only reviews per month 
+houseprice_tree = rpart(price ~ latitude + longitude + minimum_nights + reviews_per_month 
+                        + calculated_host_listings_count + availability_365  + neighbourhood_group 
+                        + room_type, method = "anova", data = data_train)
+
+mypreds_tree <- predict(houseprice_tree,newdata = data_test, type = "vector", interval = "prediction")
+mse_tree = sum((mypreds_tree - data_test[,"price"])^2)/sum((data_test[,"price"] -mean(data_test[,"price"]))^2)
+mse_tree
+#error again 1.139
+
+
+plot(houseprice_tree,uniform=TRUE,
+  main="Regression Tree for House Prices",branch=.01)
+text(houseprice_tree, use.n=TRUE, all=TRUE, cex=.75)
+
+
+#if I wanted to a confusion matrix for future projects with different types of data
+res_tree <- table(data_test$price, mypreds_tree)
+res_tree
+print(paste("Accuracy:  ",100*(sum(diag(res_tree))/sum(res_tree)),"%",sep=""))
+
+
+#Prune the Tree
+pruned_tree <- prune(houseprice_tree,cp=.012)
+mypreds_pruned_tree <- predict(pruned_tree,newdata = data_test,type="vector", interval = "prediction")
+
+plot(pruned_tree,uniform=TRUE,
+     main="Regression Tree for House Prices",branch=.01)
+text(pruned_tree, use.n=TRUE, all=TRUE, cex=.75)
+
+
+mse_pruned_tree = sum((mypreds_pruned_tree - data_test[,"price"])^2)/sum((data_test[,"price"] -mean(data_test[,"price"]))^2)
+mse_pruned_tree
+#1.139 
+#prune did not do anything to the tree
+
+# Random Forest 
+
+# using both number of reviews and reviews per month 
+#houseprice_rf = randomForest( x=data_train[,c("latitude", "longitude", "minimum_nights", "number_of_reviews", "reviews_per_month" 
+                          # , "calculated_host_listings_count" , "availability_365"  , "neighbourhood_group" 
+                           #  , "room_type")], y=data_train[, c("price")], type = "regression")
+
+# using only number of reviews - BETTER MODEL
+houseprice_rf = randomForest( x=data_train[,c("latitude", "longitude", "minimum_nights", "number_of_reviews"
+                                              , "calculated_host_listings_count" , "availability_365"  , "neighbourhood_group" 
+                                              , "room_type")], y=data_train[, c("price")], type = "regression")
+
+houseprice_rf_pred <- predict(houseprice_rf,newdata=data_test,type="response")
+mse_re = sum((houseprice_rf_pred - data_test[,"price"])^2)/sum((data_test[,"price"] -mean(data_test[,"price"]))^2)
+mse_re
+### Mse .85 better than the tree
+
+# Nearest Neighbours 
+# Need numeric variables 
+
+houseprice_mse <- numeric(50) ## make a container to hold the mean squared error ratios
+for (kk in c(1:50)){ ## loop through the different neighbourhood sizes
+  houseprice_knn <- knn.reg(train=as.data.frame(data_train[,c("latitude",  "longitude", "minimum_nights",  "number_of_reviews" 
+                                                                 , "calculated_host_listings_count" , "availability_365")]),
+                               test=as.data.frame(data_test[,c("latitude",  "longitude", "minimum_nights",  "number_of_reviews" 
+                                                               , "calculated_host_listings_count" , "availability_365")]),
+                               y=data_train[,"price"],k=kk,algorithm="brute") ## run the model
+  houseprice_mse[kk] <- sum((houseprice_knn$pred - data_train[,"price"])^2)/
+    sum((data_test[,"price"] - mean(data_test[,"price"]))^2) ## compute mse ratio
+}
+# Mse for knn
+houseprice_mse
+# mse's are much higher than the tree and random forest
+
+
