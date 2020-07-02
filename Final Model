@@ -1,0 +1,46 @@
+#PACKAGES
+library(forcats)
+library(gmodels)
+library(dplyr)
+library(randomForest)
+
+#READ IN DATA
+#hw_train = read.csv("~/Desktop/SFU classes/Stat 310/HW3/train_listings.csv")
+#hw_test = read.csv("~/Desktop/SFU classes/Stat 310/HW3/test_listings_hw.csv")
+
+#EXPLORATORY ANALYSIS
+### Correlation Matrix 
+cor(select(hw_train, c("latitude", "longitude", "minimum_nights", "number_of_reviews", "reviews_per_month" 
+                       , "calculated_host_listings_count" , "availability_365")))
+### Reviews per month and number of reviews have a decently high correlation at 0.62
+
+#MODEL
+set.seed(310)
+trinds <- sample(c(1:r),3000,replace=F)
+data_train <- as.data.frame(hw_train[trinds,])
+data_test <- as.data.frame(hw_train[-trinds,])
+
+#Random Forest
+houseprice_rf = randomForest( x=data_train[,c("latitude", "longitude", "minimum_nights", "number_of_reviews"
+                                              , "calculated_host_listings_count" , "availability_365"  , "neighbourhood_group" 
+                                              , "room_type")], y=data_train[, c("price")], type = "regression")
+
+houseprice_rf_pred <- predict(houseprice_rf,newdata=data_test,type="response")
+mse_re = sum((houseprice_rf_pred - data_test[,"price"])^2)/sum((data_test[,"price"] -mean(data_test[,"price"]))^2)
+mse_re
+#make sure we can get the predicted price to our train data that was used as a test
+houseprice_rf_pred
+data_test$my_price_predictions = houseprice_rf_pred
+View(data_test)
+
+#now do it the full test data set
+houseprice_rf_all = randomForest( x=hw_train[,c("latitude", "longitude", "minimum_nights", "number_of_reviews"
+                                              , "calculated_host_listings_count" , "availability_365"  , "neighbourhood_group" 
+                                              , "room_type")], y=hw_train[, c("price")], type = "regression")
+
+houseprice_rf_pred_all <- predict(houseprice_rf_all,newdata=hw_test,type="response")
+houseprice_rf_pred_all
+hw_test$my_price_predictions = houseprice_rf_pred_all
+View(hw_test)
+#create a csv with our predictions
+#write.csv(hw_test, "~/Desktop/SFU classes/stat 310/HW3/my_price_predicitions.csv")
